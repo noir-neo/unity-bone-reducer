@@ -1,0 +1,7 @@
+{
+  "name": "com.neoneobeam.bone-reducer",
+  "version": "0.0.1",
+  "displayName": "Bone Reducer",
+  "unity": "2019.2",
+  "description": "Delete bones from SkinnedMeshRenderer in Editor"
+}
