@@ -19,6 +19,11 @@ Unity Editor 上で SkinnedMeshRenderer から bone を消すやつ
 
 MIT License
 
+## 寄付
+
+https://noir-neo.booth.pm/items/1815316
+
+
 # UnityBoneReducer
 Delete bones from SkinnedMeshRenderer in Unity Editor
 
@@ -39,3 +44,7 @@ Delete bones from SkinnedMeshRenderer in Unity Editor
 ## License
 
 MIT License
+
+## Donation
+
+https://noir-neo.booth.pm/items/1815316
