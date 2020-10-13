@@ -4,5 +4,5 @@
   "displayName": "Bone Reducer",
   "unity": "2019.2",
   "description": "Delete bones from SkinnedMeshRenderer in Editor",
-  "publishConfig": { "registry": "https://npm.pkg.github.com/" }
+  "publishConfig": { "registry": "https://registry.npmjs.org/" }
 }
