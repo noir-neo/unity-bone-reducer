@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -18,48 +19,45 @@ namespace BoneReducer.Editor
             wnd.titleContent = new GUIContent(nameof(BoneReducer));
         }
 
-        ObjectField skinnedMeshRendererField;
+        ObjectField rootObjectField;
         VisualElement popupsPlaceholder;
         PopupField<Transform> targetBonePopup;
         PopupField<Transform> mergeWeightTargetBonePopup;
-        TextField outputPathField;
+        TextField outputPathSuffixField;
         Button button;
 
         public void OnEnable()
         {
             var root = rootVisualElement;
-            skinnedMeshRendererField = new ObjectField("Skinned Mesh Renderer") {objectType = typeof(SkinnedMeshRenderer), allowSceneObjects = true};
-            root.Add(skinnedMeshRendererField);
+            rootObjectField = new ObjectField("Root") {objectType = typeof(GameObject), allowSceneObjects = true};
+            root.Add(rootObjectField);
 
             popupsPlaceholder = new VisualElement();
             root.Add(popupsPlaceholder);
 
-            outputPathField = new TextField("Output path");
-            root.Add(outputPathField);
+            outputPathSuffixField = new TextField("Output path suffix");
+            root.Add(outputPathSuffixField);
 
             button = new Button(OnButtonClick) {text = "Delete the bone"};
             root.Add(button);
 
-            skinnedMeshRendererField.RegisterValueChangedCallback(OnSkinnedMeshRendererChanged);
+            rootObjectField.RegisterValueChangedCallback(OnSkinnedMeshRendererChanged);
         }
 
         public void OnDisable()
         {
             targetBonePopup?.UnregisterValueChangedCallback(OnTargetBoneChanged);
-            skinnedMeshRendererField.UnregisterValueChangedCallback(OnSkinnedMeshRendererChanged);
+            rootObjectField.UnregisterValueChangedCallback(OnSkinnedMeshRendererChanged);
         }
 
         void OnButtonClick()
         {
-            var skinnedMeshRenderer = skinnedMeshRendererField.value as SkinnedMeshRenderer;
-            var targetBoneIndex = targetBonePopup.index;
-            var mergeWeightTargetBoneIndex = mergeWeightTargetBonePopup.index;
-            var outputPath = outputPathField.value;
-            DeleteBone(skinnedMeshRenderer,
-                targetBoneIndex,
-                mergeWeightTargetBoneIndex,
-                outputPath);
-            UpdatePopups(skinnedMeshRenderer, targetBoneIndex, mergeWeightTargetBoneIndex);
+            var skinnedMeshRenderers = ((GameObject) rootObjectField.value).GetComponentsInChildren<SkinnedMeshRenderer>();
+            DeleteBone(skinnedMeshRenderers,
+                targetBonePopup.value,
+                mergeWeightTargetBonePopup.value,
+                outputPathSuffixField.value);
+            UpdatePopups(skinnedMeshRenderers, targetBonePopup.index, mergeWeightTargetBonePopup.index);
         }
 
         void OnSkinnedMeshRendererChanged(ChangeEvent<Object> e)
@@ -70,15 +68,12 @@ namespace BoneReducer.Editor
                 return;
             }
 
-            var skinnedMeshRenderer = e.newValue as SkinnedMeshRenderer;
+            var skinnedMeshRenderers = ((GameObject) e.newValue).GetComponentsInChildren<SkinnedMeshRenderer>();
 
-            UpdatePopups(skinnedMeshRenderer);
-
-            var mesh = skinnedMeshRenderer.sharedMesh;
-            outputPathField.value = OutputPath(mesh);
+            UpdatePopups(skinnedMeshRenderers);
         }
 
-        void UpdatePopups(SkinnedMeshRenderer skinnedMeshRenderer, int targetBoneIndex = 0, int mergeWeightTargetBoneIndex = 0)
+        void UpdatePopups(SkinnedMeshRenderer[] skinnedMeshRenderers, int targetBoneIndex = 0, int mergeWeightTargetBoneIndex = 0)
         {
             if (targetBonePopup != null)
             {
@@ -93,12 +88,12 @@ namespace BoneReducer.Editor
                 mergeWeightTargetBonePopup = null;
             }
 
-            if (skinnedMeshRenderer == null)
+            if (skinnedMeshRenderers == null)
             {
                 return;
             }
 
-            var bones = skinnedMeshRenderer.bones.ToList();
+            var bones = skinnedMeshRenderers.SelectMany(r => r.bones).Distinct().ToList();
             targetBonePopup = new PopupField<Transform>("Target bone",
                 bones,
                 Math.Min(bones.Count, targetBoneIndex),
@@ -115,44 +110,79 @@ namespace BoneReducer.Editor
 
         void OnTargetBoneChanged(ChangeEvent<Transform> e)
         {
-            if (e.newValue == null || skinnedMeshRendererField.value == null)
+            if (e.newValue == null || rootObjectField.value == null)
             {
                 return;
             }
 
-            var skinnedMeshRenderer = skinnedMeshRendererField.value as SkinnedMeshRenderer;
-            var targetBone = e.newValue;
-            mergeWeightTargetBonePopup.value = ParentBone(skinnedMeshRenderer.bones, targetBone);
+            var skinnedMeshRenderer = rootObjectField.value as SkinnedMeshRenderer;
+            if (skinnedMeshRenderer == null) return;
+            var parentBone = ParentBone(skinnedMeshRenderer.bones, e.newValue);
+            if (parentBone != null) mergeWeightTargetBonePopup.value = parentBone;
         }
 
-        static string OutputPath(Object obj)
+        static string OutputPath(Object obj, string suffix)
         {
             var originalAssetPath = AssetDatabase.GetAssetPath(obj);
+            if (string.IsNullOrEmpty(originalAssetPath)) return "";
             var isSubAsset = AssetDatabase.IsSubAsset(obj);
             var directoryName = Path.GetDirectoryName(originalAssetPath);
             var fileName = isSubAsset
-                ? $"{Path.GetFileNameWithoutExtension(originalAssetPath)}_{obj.name}_BoneReduced.asset"
-                : $"{Path.GetFileNameWithoutExtension(originalAssetPath)}_BoneReduced.asset";
+                ? $"{Path.GetFileNameWithoutExtension(originalAssetPath)}_{obj.name}{suffix}.asset"
+                : $"{Path.GetFileNameWithoutExtension(originalAssetPath)}{suffix}.asset";
             return Path.Combine(directoryName, fileName);
         }
 
-        static void DeleteBone(SkinnedMeshRenderer skinnedMeshRenderer, int targetBoneIndex, int mergeWeightTargetBoneIndex, string outputPath)
+        static void DeleteBone(IEnumerable<SkinnedMeshRenderer> skinnedMeshRenderers, Transform targetBone,
+            Transform mergeWeightTargetBone, string outputPathSuffix)
         {
+            foreach (var skinnedMeshRenderer in skinnedMeshRenderers)
+            {
+                DeleteBone(skinnedMeshRenderer, targetBone, mergeWeightTargetBone, outputPathSuffix);
+            }
+        }
+
+        static void DeleteBone(SkinnedMeshRenderer skinnedMeshRenderer, Transform targetBone,
+            Transform mergeWeightTargetBone, string outputPathSuffix)
+        {
+            var outputPath = OutputPath(skinnedMeshRenderer.sharedMesh, outputPathSuffix);
             var mesh = Instantiate(skinnedMeshRenderer.sharedMesh);
-            skinnedMeshRenderer.bones = skinnedMeshRenderer.bones
-                .Where((_, i) => i != targetBoneIndex)
-                .ToArray();
-            mesh.boneWeights = mesh.boneWeights
-                .Select(x => MergeBoneWeight(x, targetBoneIndex, mergeWeightTargetBoneIndex))
-                .Select(x => DeleteBoneIndex(x, targetBoneIndex))
-                .ToArray();
-            mesh.bindposes = mesh.bindposes
-                .Where((_, i) => i != targetBoneIndex)
-                .ToArray();
+            var bones = skinnedMeshRenderer.bones.ToList();
+            var targetBoneIndex = bones.IndexOf(targetBone);
+            if (targetBoneIndex < 0) return;
+            var mergeWeightTargetBoneIndex = bones.IndexOf(mergeWeightTargetBone);
+            if (mergeWeightTargetBoneIndex < 0)
+            {
+                skinnedMeshRenderer.bones = skinnedMeshRenderer.bones
+                    .Select(b => b == targetBone ? mergeWeightTargetBone : b)
+                    .ToArray();
+                var matrix = mergeWeightTargetBone.worldToLocalMatrix * skinnedMeshRenderer.transform.localToWorldMatrix;
+                mesh.bindposes = mesh.bindposes
+                    .Select((m, i) => i == targetBoneIndex ? matrix : m)
+                    .ToArray();
+            }
+            else
+            {
+                skinnedMeshRenderer.bones = skinnedMeshRenderer.bones
+                    .Where((_, i) => i != targetBoneIndex)
+                    .ToArray();
+                mesh.boneWeights = mesh.boneWeights
+                    .Select(x => MergeBoneWeight(x, targetBoneIndex, mergeWeightTargetBoneIndex))
+                    .Select(x => DeleteBoneIndex(x, targetBoneIndex))
+                    .ToArray();
+                mesh.bindposes = mesh.bindposes
+                    .Where((_, i) => i != targetBoneIndex)
+                    .ToArray();
+            }
 
             skinnedMeshRenderer.sharedMesh = mesh;
-            AssetDatabase.CreateAsset(mesh, outputPath);
-            AssetDatabase.SaveAssets();
+            EditorUtility.SetDirty(skinnedMeshRenderer);
+
+            if (!string.IsNullOrEmpty(outputPath))
+            {
+                AssetDatabase.CreateAsset(mesh, outputPath);
+                AssetDatabase.SaveAssets();
+            }
         }
 
         static Transform ParentBone(Transform[] bones, Transform target)
